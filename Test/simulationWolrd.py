@@ -43,6 +43,7 @@ class Person:
         else:
             disease.susceptible-=1;
         self.color = themeColors["infected"]
+        return self.infections[disease.id]
     def recover(self, infection):
         try:
             self.infections[infection.disease.id] = 0
@@ -144,14 +145,15 @@ class Disease:
         return historyFrame;
 
 class World:
-    def __init__(self, initPopulation):
+    def __init__(self, initPopulation, vaccination_percent, k, p):
         self.popsize = initPopulation;
         self.population = []
         self.diseaseList = [];
         self.age = 0;
+        self.vaccination_percent = vaccination_percent
         for indv in range(initPopulation):
             self.population.append(Person(self));
-        self.worldgraph = nx.watts_strogatz_graph(initPopulation, 4,  .3); #small world graph
+        self.worldgraph = nx.newman_watts_strogatz_graph(initPopulation, k,  p); #small world graph
         mappin = {num: per for (num, per) in enumerate(self.population)}
         nx.relabel_nodes(self.worldgraph, mappin, copy=False)
         #self.nodeLayout = nx.spring_layout(self.worldgraph, scale=200, k=1/(50*sqrt(self.popsize)))
@@ -159,7 +161,7 @@ class World:
         nx.set_node_attributes(self.worldgraph, 'color', themeColors["alive"])
     def draw(self):
         if(drawgif):
-            nodeColors = [x.color for x in nx.nodes_iter(self.worldgraph)]
+            nodeColors = [x.color for x in nx.nodes(self.worldgraph)]
             plt.figure(figsize=(8,6))
             plt.title("Network at Age "+str(self.age))
             nx.draw(self.worldgraph, pos=self.nodeLayout, node_color=nodeColors, node_size=30, hold=1)
@@ -186,13 +188,16 @@ class World:
             histories[disease.name] = disease.summary();
         return histories;
 
-def main():
-    os.system("rm graphseries/*.png")
-    earth = World(100)
+def main(popsize, vaccination_percent, k, p):
+    # os.system("rm Test/graphseries/*.png")
+    earth = World(popsize, vaccination_percent, k, p)
     earth.tick()
     flu = Disease("1918 Flu", earth, 0.8, 1);
     earth.population[0].infect(flu, 0)
     earth.population[1].infect(flu, 0)
+    for i in range(int(earth.vaccination_percent*earth.popsize)):
+        infection = earth.population[i+2].infect(flu, False)
+        earth.population[i+2].recover(infection)
     earth.runSim(120)
     if(drawgif):
         png_dir = "graphseries"
@@ -205,11 +210,27 @@ def main():
         imageio.mimsave('graphseries/movie.gif', images, duration =0.3)
     return(earth)
 
-earth = main()
-history = earth.summary()
-for name, x in history.items():
-    y = pd.melt(x, id_vars="time")
-    print(y)
-    fg = seaborn.FacetGrid(data=y, hue='variable', hue_order=['1-S','2-I','3-R','4-D'], aspect=1.61)
-    fg.map(plt.plot, 'time', 'value').add_legend()
+def run_simulation(popsize, vaccination_percent, k, p):
+    earth = main(popsize, vaccination_percent, k, p)
+    history = earth.summary()
+    for name, x in history.items():
+        y = pd.melt(x, id_vars="time")
+        print(y)
+        fg = seaborn.FacetGrid(data=y, hue='variable', hue_order=['1-S','2-I','3-R','4-D'], aspect=1.61)
+        fg.map(plt.plot, 'time', 'value').add_legend()
+    plt.show(block=False)
+    return earth, calculate_ro(earth)
+
+
+def calculate_ro(earth):
+    listI = sorted(earth.diseaseList[0].historyI.items())
+    x, yI = zip(*listI)
+    max_index = yI.index(max(yI))
+    listS = sorted(earth.diseaseList[0].historyS.items())
+    x, yS = zip(*listS)
+    return 1/((1-earth.vaccination_percent)*yS[max_index])
+
+
+print(run_simulation(1000, 0, 3, 0.027)[1])
+
 
