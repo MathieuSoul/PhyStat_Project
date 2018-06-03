@@ -32,17 +32,18 @@ class Person:
         self.alive = 1;
         self.color = themeColors["alive"]
         self.recoveryRate = random.uniform(.9, .99)
-        self.resistance = .9
-        #self.resistanceCoeff = random.uniform(.5, 1)*(self.age-40)^2*(1/1600)
+        self.age = random.uniform(1,90)
+        self.resistanceCoeff = random.uniform(.5, 1)*((self.age-40)**2)*(1/1600) #test d'ajout d'un coefficient de resistance en fonction de l'age
+        self.resistance = .9 - self.resistanceCoeff
     def infect(self, disease, wasResistant):
-        baseDeathTime = 32;
-        self.infections[disease.id] = Infection(self, disease, baseDeathTime*disease.pathogenicity, self.recoveryRate);
+        self.infections[disease.id] = Infection(self, disease,disease.pathogenicity, self.recoveryRate);
         disease.infected+=1;
         if wasResistant:
             disease.resistant-=1;
         else:
             disease.susceptible-=1;
         self.color = themeColors["infected"]
+        return(self.infections[disease.id])
     def recover(self, infection):
         try:
             self.infections[infection.disease.id] = 0
@@ -57,15 +58,16 @@ class Person:
         for diseaseid, infection in a.infections.items():
             if b.infections.get(diseaseid, 0)==0 and infection!=0:
                 resistance = b.resistances.get(diseaseid, -1); #si la disease n'est pas dans les resistances,  on l'y ajoute avec une resistance de -1
-                if resistance!=-1: #la disease est dans la liste des resistances, la resistance est de 0.9
-                    test = random.uniform(0, 1)
-                    test2 = random.uniform(0, 1)
-                    if(test2>resistance) and (test<infection.disease.virulence): 
-                        b.infect(infection.disease, 1);
-                        newInfections.append(infection.disease.id)
+#                if resistance!=-1: #la disease est dans la liste des resistances, la resistance est de 0.9
+#                    test = random.uniform(0, 1)
+#                    test2 = random.uniform(0, 1)
+#                    if(test2>resistance) and (test<infection.disease.virulence): 
+#                        b.infect(infection.disease, 1);
+#                        newInfections.append(infection.disease.id)
                     #else:
                         #print("individual resisted infection!")
-                else: #la disease n'est pas dans la liste des resistances
+                #else: #la disease n'est pas dans la liste des resistances
+                if resistance == -1:
                     test = random.uniform(0, 1)
                     if(test<infection.disease.virulence):
                         b.infect(infection.disease, 0);
@@ -85,11 +87,18 @@ class Person:
             disease.infected-=1;
             disease.dead+=1;
             self.color = themeColors["dead"]
-    def tick(self):
+    def tick(self, age):
         if(self.alive==1):
             for diseaseid, infection in self.infections.items():
+                #print (self.infections)
                 if(infection!=0):
                     infection.tick()
+            if not bool(self.infections) and age > 1:#self.state == "susceptible" and age>1:
+                test = random.uniform(0,1)
+                thedisease = self.world.diseaseList[0]
+                if test < thedisease.vaccinationRate : 
+                    infection = self.infect(thedisease,False)
+                    self.recover(infection)
 
 class Infection:
     def __init__(self, host, disease, timeToDeath, recoveryRate):
@@ -102,17 +111,17 @@ class Infection:
     def tick(self):
         if not self.recovered:
             self.timeToDeath-=1;
-            if self.timeToDeath<1:
+            if self.timeToDeath<1 and self.disease.deadly == True :
                 self.host.die(self.disease)
             else:
                 test = random.uniform(0, 1)
                 if(test>self.recoveryRate):
                     self.host.recover(self)
                     self.recovered = 1;
-
+        
 class Disease:
     idct = 1;
-    def __init__(self, name, world, virulence, pathogenicity):
+    def __init__(self, name, world, virulence, pathogenicity, deadly, vaccins, vaccinationRate):
         self.name = name;
         self.id = Disease.idct;
         Disease.idct+=1;
@@ -125,8 +134,11 @@ class Disease:
         self.world = world;
         self.historyS = {};
         self.historyI = {};
-        self.historyR = {}
-        self.historyD = {}
+        self.historyR = {};
+        self.historyD = {};
+        self.deadly = deadly;
+        self.vaccins = vaccins;
+        self.vaccinationRate = vaccinationRate;
         world.diseaseList.append(self);
     #These two functions are not currently in use. They don't fit into the current model
     '''def mutateVirulence(self, virulenceJitter = .05):
@@ -134,10 +146,33 @@ class Disease:
     def mutatePathogenicity(self, pathoJitter = .1):
         self.pathogenicity = self.pathogenicity + random.uniform(-pathoJitter, pathoJitter)'''
     def tick(self, age):
+        for vaccin in self.vaccins :
+            if (vaccin[0] == age and vaccin[1] <= self.infected):
+                print ('ok')
+                nb = vaccin[1]
+                vaccined = random.sample(range(1, self.infected), nb)
+                print(len(vaccined))
+                nb_eff_vaccined = 0
+#                while nb_eff_vaccined < nb :
+#                    print(nb)
+                for person in self.world.population :
+                    for diseaseid, infection in person.infections.items():
+                        if(infection!=0):
+                            lastInfection = person.infections.get(diseaseid)
+                            lastInfection.recovered = 1;
+                            person.recover(lastInfection);
+                            print("individu vacciné")
+                            nb_eff_vaccined += 1;
+                    if nb_eff_vaccined > nb :
+                        break;
+                print (nb_eff_vaccined)
+        
         self.historyS[age] = self.susceptible;
         self.historyI[age] = self.infected;
         self.historyR[age] = self.resistant;
-        self.historyD[age] = self.dead;
+        print (self.susceptible,self.infected,self.resistant,self.dead)
+        if self.deadly == True :
+            self.historyD[age] = self.dead;
     def summary(self):
         historyFrame = pd.DataFrame({"1-S": self.historyS, "2-I": self.historyI, "3-R": self.historyR, "4-D": self.historyD});
         historyFrame["time"] = historyFrame.index
@@ -150,12 +185,13 @@ class World:
         self.diseaseList = [];
         self.age = 0;
         for indv in range(initPopulation):
-            self.population.append(Person(self));
-        self.worldgraph = nx.watts_strogatz_graph(initPopulation, 4,  .3); #small world graph
+            person = Person(self)
+            self.population.append(person);
+        self.worldgraph = nx.watts_strogatz_graph(initPopulation, 4,  .1); #small world graph
         mappin = {num: per for (num, per) in enumerate(self.population)}
         nx.relabel_nodes(self.worldgraph, mappin, copy=False)
-        #self.nodeLayout = nx.spring_layout(self.worldgraph, scale=200, k=1/(50*sqrt(self.popsize)))
-        self.nodeLayout = forceatlas.forceatlas2_layout(self.worldgraph, iterations=10)
+        self.nodeLayout = nx.spring_layout(self.worldgraph, scale=200, k=1/(50*sqrt(self.popsize)))
+        #self.nodeLayout = forceatlas.forceatlas2_layout(self.worldgraph, iterations=100,linlog=True)
         nx.set_node_attributes(self.worldgraph, 'color', themeColors["alive"])
     def draw(self):
         if(drawgif):
@@ -174,7 +210,7 @@ class World:
         for edge in interactions:
             edge[0].interact(edge[1])
         for person in self.population:
-            person.tick();
+            person.tick(self.age);
         for disease in self.diseaseList:
             disease.tick(self.age)
     def runSim(self, nsteps):
@@ -188,9 +224,9 @@ class World:
 
 def main():
     os.system("rm graphseries/*.png")
-    earth = World(100)
+    earth = World(1000)
     earth.tick()
-    flu = Disease("1918 Flu", earth, 0.8, 1);
+    flu = Disease("1918 Flu", earth, 0.3, 50, True, [], 0.2);
     earth.population[0].infect(flu, 0)
     earth.population[1].infect(flu, 0)
     earth.runSim(120)
@@ -209,7 +245,8 @@ earth = main()
 history = earth.summary()
 for name, x in history.items():
     y = pd.melt(x, id_vars="time")
-    print(y)
     fg = seaborn.FacetGrid(data=y, hue='variable', hue_order=['1-S','2-I','3-R','4-D'], aspect=1.61)
     fg.map(plt.plot, 'time', 'value').add_legend()
+    
+
 
