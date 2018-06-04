@@ -17,6 +17,7 @@ import imageio
 import seaborn
 import forceatlas
 
+
 themeColors = {"alive": "blue", "infected": "orange", "dead": "red", "recovered": "green"}
 drawgif = 1;
 
@@ -187,7 +188,8 @@ class World:
         for indv in range(initPopulation):
             person = Person(self)
             self.population.append(person);
-        self.worldgraph = nx.watts_strogatz_graph(initPopulation, 4,  .1); #small world graph
+        #self.worldgraph = nx.watts_strogatz_graph(initPopulation, 4,  .1); #small world graph
+        self.worldgraph = nx.newman_watts_strogatz_graph(initPopulation, 4,  .1); #small world graph
         mappin = {num: per for (num, per) in enumerate(self.population)}
         nx.relabel_nodes(self.worldgraph, mappin, copy=False)
         self.nodeLayout = nx.spring_layout(self.worldgraph, scale=200, k=1/(50*sqrt(self.popsize)))
@@ -226,7 +228,7 @@ def main():
     os.system("rm graphseries/*.png")
     earth = World(1000)
     earth.tick()
-    flu = Disease("1918 Flu", earth, 0.3, 50, True, [], 0.2);
+    flu = Disease("1918 Flu", earth, 0.3, 30, True, [], 0.001);
     earth.population[0].infect(flu, 0)
     earth.population[1].infect(flu, 0)
     earth.runSim(120)
